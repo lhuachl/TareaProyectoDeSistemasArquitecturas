@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Master-Slave Todo · PyO3</title>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* animación sutil de actualización */
+    .htmx-settling { opacity: 0.6; transition: opacity 0.2s ease; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-mono p-6 pb-16">
+
+  <!-- ═══════════════ HEADER ═══════════════ -->
+  <header class="mb-8 text-center">
+    <h1 class="text-3xl font-bold tracking-tight">
+      🗄️ Master-<span class="text-green-400">Slave</span> Todo
+    </h1>
+    <p class="text-gray-400 text-sm mt-1">
+      FastAPI · PyO3 + Rust · HTMX — arquitectura de replicación
+    </p>
+    <div class="mt-2 flex justify-center gap-4 text-xs text-gray-600">
+      <span>🟢 master → escribe</span>
+      <span>🔵 slave 1 → lee (0 ms lag)</span>
+      <span>🟠 slave 2 → lee (800 ms lag)</span>
+    </div>
+  </header>
+
+  <!-- ═══════════════ MASTER — escritura ═══════════════ -->
+  <section class="max-w-xl mx-auto mb-10 rounded-xl border border-green-700 bg-gray-900 p-5 shadow-lg">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+      <h2 class="text-lg font-bold text-green-400">MASTER — nodo de escritura</h2>
+    </div>
+
+    <form hx-post="/tasks"
+          hx-target="#slave1-list"
+          hx-swap="innerHTML"
+          hx-on::after-request="this.reset()"
+          class="flex gap-2">
+      <input name="title"
+             required
+             minlength="1"
+             maxlength="200"
+             placeholder="Nueva tarea…"
+             autocomplete="off"
+             class="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-2
+                    text-sm focus:outline-none focus:border-green-500 placeholder-gray-500" />
+      <button type="submit"
+              class="bg-green-600 hover:bg-green-500 text-white px-5 py-2 rounded-lg
+                     text-sm font-semibold transition-colors shrink-0">
+        + Agregar
+      </button>
+    </form>
+
+    <p class="text-xs text-gray-600 mt-3">
+      ✦ El master valida el título y genera el ID en <strong class="text-gray-400">Rust (PyO3)</strong>
+      · luego replica a los slaves
+    </p>
+  </section>
+
+  <!-- ═══════════════ SLAVES — lecturas ═══════════════ -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl mx-auto">
+
+    <!-- ── SLAVE 1 ── sin lag ── -->
+    <section class="rounded-xl border border-blue-700 bg-gray-900 p-5 shadow-lg">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-3 h-3 rounded-full bg-blue-400 animate-pulse"></span>
+        <h2 class="font-bold text-blue-400">SLAVE 1 — réplica rápida</h2>
+        <span class="ml-auto text-xs bg-blue-900 text-blue-300 px-2 py-0.5 rounded-full">0 ms</span>
+      </div>
+      <p class="text-xs text-gray-600 mb-3">
+        Replica instantánea · soporta operaciones de escritura delegadas
+      </p>
+
+      <!-- búsqueda (filtrado en Rust) -->
+      <input id="s1q"
+             type="search"
+             name="q"
+             placeholder="Buscar… (filtro Rust)"
+             hx-get="/slave/1/tasks"
+             hx-target="#slave1-list"
+             hx-trigger="keyup changed delay:300ms, search"
+             hx-swap="innerHTML"
+             class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-1.5
+                    text-sm mb-3 focus:outline-none focus:border-blue-500 placeholder-gray-500" />
+
+      <!-- lista de tareas (carga inicial) -->
+      <div id="slave1-list"
+           hx-get="/slave/1/tasks"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+        <p class="text-gray-500 text-sm text-center py-4">Cargando…</p>
+      </div>
+    </section>
+
+    <!-- ── SLAVE 2 ── 800 ms lag ── -->
+    <section class="rounded-xl border border-orange-700 bg-gray-900 p-5 shadow-lg">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-3 h-3 rounded-full bg-orange-400 animate-pulse"></span>
+        <h2 class="font-bold text-orange-400">SLAVE 2 — réplica con lag</h2>
+        <span class="ml-auto text-xs bg-orange-900 text-orange-300 px-2 py-0.5 rounded-full">800 ms</span>
+      </div>
+      <p class="text-xs text-gray-600 mb-3">
+        Solo lectura · actualiza cada 1.5 s · puede mostrar datos desactualizados ⚠️
+      </p>
+
+      <!-- búsqueda -->
+      <input id="s2q"
+             type="search"
+             name="q"
+             placeholder="Buscar… (filtro Rust)"
+             hx-get="/slave/2/tasks"
+             hx-target="#slave2-list"
+             hx-trigger="keyup changed delay:300ms, search"
+             hx-swap="innerHTML"
+             class="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-1.5
+                    text-sm mb-3 focus:outline-none focus:border-orange-500 placeholder-gray-500" />
+
+      <!-- lista de tareas (auto-poll cada 1.5 s + incluye búsqueda activa) -->
+      <div id="slave2-list"
+           hx-get="/slave/2/tasks"
+           hx-trigger="load, every 1500ms"
+           hx-include="#s2q"
+           hx-swap="innerHTML">
+        <p class="text-gray-500 text-sm text-center py-4">Cargando…</p>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ═══════════════ FOOTER ═══════════════ -->
+  <footer class="max-w-5xl mx-auto mt-8 text-center text-xs text-gray-700 space-y-1">
+    <p>
+      Agrega una tarea y observa cómo <span class="text-blue-500">Slave 1</span> se actualiza al instante
+      mientras <span class="text-orange-500">Slave 2</span> tarda ~800 ms en recibirla.
+    </p>
+    <p>
+      ID generado con <code class="text-gray-500">generate_id()</code> ·
+      búsqueda con <code class="text-gray-500">filter_tasks()</code> ·
+      stats con <code class="text-gray-500">count_completed()</code> — todos en Rust via PyO3.
+    </p>
+    <p>
+      <a href="/status" class="text-gray-600 hover:text-gray-400 underline">/status JSON</a>
+    </p>
+  </footer>
+
+</body>
+</html>

@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEXUS P2P — {{ node_id }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2uH1/ZE7TNwm4F/8MzCiMwZGCEIlPFNVpDn" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<div class="app-wrapper">
+    <div class="scanline"></div>
+
+    <!-- ── HEADER ─────────────────────────────────────────────────────── -->
+    <header class="app-header">
+        <div class="header-top">
+            <div class="logo-block">
+                <div class="logo-icon">
+                    <span class="pulse-ring"></span>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="3" stroke="#00f5c8" stroke-width="1.5"/>
+                        <line x1="12" y1="2" x2="12" y2="6"   stroke="#00f5c8" stroke-width="1.5" stroke-linecap="round"/>
+                        <line x1="12" y1="18" x2="12" y2="22" stroke="#00f5c8" stroke-width="1.5" stroke-linecap="round"/>
+                        <line x1="2"  y1="12" x2="6"  y2="12" stroke="#00f5c8" stroke-width="1.5" stroke-linecap="round"/>
+                        <line x1="18" y1="12" x2="22" y2="12" stroke="#00f5c8" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="logo-label">NEXUS P2P</p>
+                    <p class="logo-sub">{{ node_id }} · :{{ port }}</p>
+                </div>
+            </div>
+            <div class="status-chip">
+                <span class="dot"></span> ONLINE
+            </div>
+        </div>
+
+        <!-- peers row -->
+        <div class="peers-row">
+            <span class="peer-label">PEERS:</span>
+            {% for peer in peers %}
+            <span class="peer-chip">{{ peer }}</span>
+            {% else %}
+            <span class="peer-chip muted">sin peers configurados</span>
+            {% endfor %}
+        </div>
+
+        <!-- live stats via HTMX polling -->
+        <div id="stats-block"
+             hx-get="/stats/partial"
+             hx-trigger="load, every 3s"
+             hx-swap="innerHTML"
+             hx-target="#stats-block">
+            <div class="stats-row">
+                <div class="stat-card"><span class="stat-num">…</span><span class="stat-label">TOTAL</span></div>
+                <div class="stat-card accent"><span class="stat-num">…</span><span class="stat-label">DONE</span></div>
+                <div class="stat-card"><span class="stat-num">…</span><span class="stat-label">PENDING</span></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ── PROPOSE FORM ────────────────────────────────────────────────── -->
+    <section class="input-section">
+        <form id="propose-form"
+              hx-post="/propose"
+              hx-target="#consensus-result"
+              hx-swap="innerHTML"
+              hx-indicator="#spinner"
+              hx-on::after-request="clearInput(); htmx.trigger('#task-list-wrap', 'refresh')">
+            <div class="input-row">
+                <input  type="text"
+                        name="text"
+                        id="task-input"
+                        class="task-input"
+                        placeholder="Nueva directiva..."
+                        maxlength="200"
+                        autocomplete="off"
+                        required />
+                <button type="submit" class="add-btn" title="Proponer tarea">
+                    <span id="spinner" class="htmx-indicator spin-icon">⟳</span>
+                    <svg class="plus-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                        <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <line x1="5"  y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+        </form>
+
+        <!-- consensus result (populated by HTMX response) -->
+        <div id="consensus-result"></div>
+    </section>
+
+    <!-- ── TASK LIST (HTMX polling) ───────────────────────────────────── -->
+    <div id="task-list-wrap"
+         hx-get="/tasks/partial"
+         hx-trigger="load, every 3s, refresh from:body"
+         hx-swap="innerHTML">
+        <p class="loading-hint">cargando tareas…</p>
+    </div>
+
+    <!-- ── CONSENSUS LOG (HTMX polling) ──────────────────────────────── -->
+    <section class="log-section">
+        <div class="log-header">
+            <span class="log-title">CONSENSUS LOG</span>
+            <span class="log-sub">actividad en tiempo real</span>
+        </div>
+        <div id="consensus-log"
+             hx-get="/log/partial"
+             hx-trigger="load, every 2s"
+             hx-swap="innerHTML">
+            <p class="loading-hint">cargando log…</p>
+        </div>
+    </section>
+</div>
+
+<!-- ══════════════════════════════════════════════ STYLES ══════════════ -->
+<style>
+:root {
+    --bg:              #0f1117;
+    --surface:         #161b27;
+    --surface-hi:      #1e2535;
+    --nm-dark:         #090c13;
+    --nm-light:        #1e2535;
+    --accent:          #00f5c8;
+    --accent-dim:      rgba(0,245,200,.12);
+    --accent-glow:     rgba(0,245,200,.25);
+    --warn:            #ffc14d;
+    --danger:          #ff4d6d;
+    --ok:              #00f5c8;
+    --text-primary:    #e8eaf0;
+    --text-secondary:  #6b7a99;
+    --text-muted:      #3d4a62;
+    --border:          rgba(255,255,255,.05);
+    --font-display:    'Orbitron', sans-serif;
+    --font-body:       'DM Sans', sans-serif;
+    --r:               16px;
+    --r-sm:            10px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text-primary);font-family:var(--font-body);
+     min-height:100vh;display:flex;align-items:flex-start;justify-content:center;
+     padding:2rem 1rem 4rem;}
+.app-wrapper{width:100%;max-width:520px;position:relative;}
+.scanline{position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;
+    background:repeating-linear-gradient(0deg,transparent,transparent 3px,
+        rgba(0,0,0,.04) 3px,rgba(0,0,0,.04) 4px);z-index:100;}
+
+/* ── HEADER ── */
+.app-header{background:var(--surface);
+    box-shadow:8px 8px 20px var(--nm-dark),-5px -5px 14px var(--nm-light);
+    border-radius:var(--r);padding:1.4rem 1.4rem 1.2rem;margin-bottom:1.2rem;
+    border:1px solid var(--border);position:relative;overflow:hidden;}
+.app-header::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.6;}
+
+.header-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;}
+.logo-block{display:flex;align-items:center;gap:12px;}
+.logo-icon{width:40px;height:40px;background:var(--surface-hi);
+    box-shadow:4px 4px 10px var(--nm-dark),-3px -3px 8px rgba(255,255,255,.03);
+    border-radius:10px;display:flex;align-items:center;justify-content:center;position:relative;}
+.pulse-ring{position:absolute;width:100%;height:100%;border-radius:10px;
+    border:1px solid var(--accent);opacity:0;animation:pulse-ring 2.5s ease-out infinite;}
+@keyframes pulse-ring{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.5);opacity:0}}
+.logo-label{font-family:var(--font-display);font-size:14px;font-weight:700;
+    letter-spacing:3px;color:var(--accent);line-height:1;}
+.logo-sub{font-size:9px;letter-spacing:2px;color:var(--text-muted);
+    margin-top:3px;font-family:var(--font-display);}
+.status-chip{font-family:var(--font-display);font-size:9px;letter-spacing:2px;
+    color:var(--accent);background:var(--accent-dim);border:1px solid rgba(0,245,200,.2);
+    padding:5px 10px;border-radius:20px;display:flex;align-items:center;gap:6px;}
+.dot{width:6px;height:6px;background:var(--accent);border-radius:50%;
+    animation:blink 1.5s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* peers */
+.peers-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:1rem;}
+.peer-label{font-family:var(--font-display);font-size:8px;letter-spacing:2px;
+    color:var(--text-muted);}
+.peer-chip{font-family:var(--font-display);font-size:8px;letter-spacing:1px;
+    color:var(--accent);background:var(--accent-dim);border:1px solid rgba(0,245,200,.2);
+    padding:3px 8px;border-radius:20px;}
+.peer-chip.muted{color:var(--text-muted);background:transparent;border-color:var(--border);}
+
+/* stats */
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.stat-card{background:var(--surface-hi);
+    box-shadow:inset 3px 3px 8px var(--nm-dark),inset -2px -2px 6px rgba(255,255,255,.03);
+    border-radius:var(--r-sm);padding:10px;text-align:center;border:1px solid var(--border);}
+.stat-card.accent{border-color:rgba(0,245,200,.2);}
+.stat-num{display:block;font-family:var(--font-display);font-size:22px;font-weight:700;
+    color:var(--text-primary);line-height:1;}
+.stat-card.accent .stat-num{color:var(--accent);}
+.stat-label{display:block;font-family:var(--font-display);font-size:8px;
+    letter-spacing:2px;color:var(--text-muted);margin-top:4px;}
+
+/* ── INPUT SECTION ── */
+.input-section{background:var(--surface);
+    box-shadow:8px 8px 20px var(--nm-dark),-5px -5px 14px var(--nm-light);
+    border-radius:var(--r);padding:1.2rem;margin-bottom:1.2rem;border:1px solid var(--border);}
+.input-row{display:flex;gap:10px;margin-bottom:10px;}
+.task-input{flex:1;background:var(--surface-hi);
+    box-shadow:inset 4px 4px 10px var(--nm-dark),inset -3px -3px 8px rgba(255,255,255,.03);
+    border:1px solid var(--border);border-radius:var(--r-sm);padding:0 16px;height:46px;
+    font-family:var(--font-body);font-size:14px;color:var(--text-primary);outline:none;
+    transition:border-color .3s,box-shadow .3s;}
+.task-input::placeholder{color:var(--text-muted);}
+.task-input:focus{border-color:rgba(0,245,200,.35);
+    box-shadow:inset 4px 4px 10px var(--nm-dark),inset -3px -3px 8px rgba(255,255,255,.03),
+               0 0 0 1px rgba(0,245,200,.15);}
+.add-btn{width:46px;height:46px;flex-shrink:0;background:var(--accent);border:none;
+    border-radius:var(--r-sm);color:#0a0e17;cursor:pointer;display:flex;
+    align-items:center;justify-content:center;
+    box-shadow:4px 4px 12px rgba(0,245,200,.3),-2px -2px 8px rgba(0,245,200,.1);
+    transition:all .2s;position:relative;}
+.add-btn:hover{transform:translateY(-1px);
+    box-shadow:6px 6px 16px rgba(0,245,200,.4),-3px -3px 10px rgba(0,245,200,.15);}
+.add-btn:active{transform:scale(.95);}
+
+/* htmx spinner */
+.htmx-indicator{display:none;font-size:18px;font-weight:700;color:#0a0e17;}
+.htmx-request .htmx-indicator{display:block;}
+.htmx-request .plus-icon{display:none;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin-icon{animation:spin .7s linear infinite;display:inline-block;}
+
+/* ── CONSENSUS RESULT ── */
+#consensus-result{min-height:0;}
+.result-box{border-radius:var(--r-sm);padding:12px 14px;font-size:13px;
+    border:1px solid;margin-top:2px;animation:slide-in .3s ease;}
+.result-box.approved{background:rgba(0,245,200,.07);border-color:rgba(0,245,200,.3);
+    color:var(--accent);}
+.result-box.rejected{background:rgba(255,77,109,.07);border-color:rgba(255,77,109,.3);
+    color:var(--danger);}
+.result-title{font-family:var(--font-display);font-size:10px;letter-spacing:2px;
+    margin-bottom:6px;}
+.vote-line{font-size:12px;color:var(--text-secondary);margin-top:4px;padding-left:8px;}
+.vote-yes{color:var(--ok);}
+.vote-no{color:var(--danger);}
+
+/* ── TASK LIST ── */
+.task-list{list-style:none;display:flex;flex-direction:column;gap:10px;margin-bottom:1.2rem;}
+.task-item{background:var(--surface);
+    box-shadow:5px 5px 14px var(--nm-dark),-3px -3px 10px var(--nm-light);
+    border-radius:var(--r);border:1px solid var(--border);
+    padding:14px 16px;display:flex;align-items:center;gap:14px;
+    transition:all .3s cubic-bezier(.4,0,.2,1);position:relative;overflow:hidden;
+    animation:slide-in .35s ease;}
+@keyframes slide-in{from{transform:translateY(-10px);opacity:0}to{transform:translateY(0);opacity:1}}
+.task-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;
+    background:transparent;border-radius:2px 0 0 2px;transition:background .3s;}
+.task-item:hover::before{background:var(--accent);}
+.task-item.done{opacity:.55;
+    box-shadow:inset 3px 3px 8px var(--nm-dark),inset -2px -2px 6px rgba(255,255,255,.02);}
+.task-item.done::before{background:var(--accent);opacity:.4;}
+
+.check-box{width:22px;height:22px;flex-shrink:0;background:var(--surface-hi);
+    box-shadow:inset 3px 3px 7px var(--nm-dark),inset -2px -2px 5px rgba(255,255,255,.03);
+    border-radius:6px;border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;transition:all .25s;}
+.task-item.done .check-box{background:var(--accent-dim);border-color:rgba(0,245,200,.4);
+    box-shadow:2px 2px 6px rgba(0,245,200,.15),inset 1px 1px 4px rgba(0,0,0,.3);}
+.check-icon{width:12px;height:12px;stroke:var(--accent);fill:none;stroke-width:2.5;
+    stroke-linecap:round;stroke-linejoin:round;opacity:0;transform:scale(.5);
+    transition:all .25s cubic-bezier(.34,1.56,.64,1);}
+.task-item.done .check-icon{opacity:1;transform:scale(1);}
+
+.task-text{flex:1;font-size:14px;color:var(--text-primary);line-height:1.4;
+    font-weight:400;word-break:break-word;letter-spacing:.2px;}
+.task-item.done .task-text{text-decoration:line-through;color:var(--text-muted);}
+.task-id-badge{font-family:var(--font-display);font-size:8px;letter-spacing:1px;
+    color:var(--text-muted);flex-shrink:0;}
+
+.action-btn{width:30px;height:30px;flex-shrink:0;background:transparent;
+    border:1px solid transparent;border-radius:8px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:all .2s;opacity:0;}
+.task-item:hover .action-btn{opacity:1;}
+.action-btn.toggle-btn{color:var(--accent);}
+.action-btn.toggle-btn:hover{border-color:rgba(0,245,200,.3);background:var(--accent-dim);}
+.action-btn.delete-btn{color:var(--text-muted);}
+.action-btn.delete-btn:hover{color:var(--danger);border-color:rgba(255,77,109,.3);
+    background:rgba(255,77,109,.08);}
+
+.empty-state{background:var(--surface);border-radius:var(--r);padding:3rem 1rem;
+    text-align:center;border:1px dashed var(--text-muted);
+    display:flex;flex-direction:column;align-items:center;gap:6px;}
+.empty-state p{font-family:var(--font-display);font-size:11px;letter-spacing:3px;
+    color:var(--text-muted);}
+.empty-sub{font-family:var(--font-body)!important;font-size:12px!important;
+    letter-spacing:.5px!important;opacity:.6;}
+
+/* ── LOG SECTION ── */
+.log-section{background:var(--surface);
+    box-shadow:8px 8px 20px var(--nm-dark),-5px -5px 14px var(--nm-light);
+    border-radius:var(--r);padding:1.2rem;border:1px solid var(--border);}
+.log-header{display:flex;align-items:baseline;justify-content:space-between;
+    margin-bottom:.9rem;}
+.log-title{font-family:var(--font-display);font-size:10px;letter-spacing:3px;
+    color:var(--accent);}
+.log-sub{font-size:11px;color:var(--text-muted);}
+
+.log-entry{padding:8px 10px;border-radius:var(--r-sm);border:1px solid var(--border);
+    margin-bottom:6px;font-size:12px;line-height:1.5;background:var(--surface-hi);
+    animation:slide-in .3s ease;}
+.log-entry .ev{font-family:var(--font-display);font-size:9px;letter-spacing:2px;
+    margin-right:6px;padding:2px 6px;border-radius:4px;}
+.ev-propose{color:#ffc14d;background:rgba(255,193,77,.1);}
+.ev-vote{color:#7eb8ff;background:rgba(126,184,255,.1);}
+.ev-consensus-ok{color:var(--accent);background:var(--accent-dim);}
+.ev-consensus-no{color:var(--danger);background:rgba(255,77,109,.1);}
+.ev-commit{color:#b47eff;background:rgba(180,126,255,.1);}
+.log-meta{color:var(--text-muted);font-size:11px;}
+.log-node{color:var(--text-secondary);}
+.log-empty{color:var(--text-muted);font-size:12px;letter-spacing:1px;text-align:center;
+    padding:1rem;font-family:var(--font-display);}
+
+.loading-hint{color:var(--text-muted);font-size:12px;text-align:center;padding:.5rem;
+    letter-spacing:1px;font-family:var(--font-display);}
+</style>
+
+<!-- ══════════════════════════════════════════════ SCRIPTS ══════════════ -->
+<script>
+/* Convert HTMX /propose JSON response into a result card */
+document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.elt.id !== 'propose-form') return;
+
+    const target = document.getElementById('consensus-result');
+    let data;
+    try { data = JSON.parse(evt.detail.xhr.responseText); }
+    catch (e) { target.innerHTML = '<div class="result-box rejected"><p class="result-title">ERROR DE SERVIDOR</p></div>'; return; }
+
+    const approved = data.approved;
+    const votes    = data.votes || [];
+    const voteHTML = votes.map(v =>
+        `<div class="vote-line ${v.vote ? 'vote-yes' : 'vote-no'}">
+            ${v.vote ? '✔' : '✘'} ${escHtml(v.node)} — ${escHtml(v.reason)}
+         </div>`
+    ).join('');
+
+    target.innerHTML = `
+        <div class="result-box ${approved ? 'approved' : 'rejected'}">
+            <p class="result-title">${approved ? '✔ CONSENSO ALCANZADO' : '✘ RECHAZADO — SIN MAYORÍA'}</p>
+            <p style="font-size:12px;margin-bottom:6px;">
+                Votos positivos: <strong>${data.positive}</strong> / <strong>${data.total}</strong>
+                &nbsp;·&nbsp; ID: <code>${data.task_id || ''}</code>
+            </p>
+            ${voteHTML}
+        </div>`;
+});
+
+function clearInput() {
+    const inp = document.getElementById('task-input');
+    if (inp) inp.value = '';
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
+
+<body>
+
+    <div class="app-wrapper">
+        <div class="scanline"></div>
+
+        <header class="app-header">
+            <div class="header-top">
+                <div class="logo-block">
+                    <div class="logo-icon">
+                        <span class="pulse-ring"></span>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                            <polygon points="12,2 22,20 2,20" stroke="#00f5c8" stroke-width="1.5" fill="none"/>
+                            <line x1="12" y1="8" x2="12" y2="14" stroke="#00f5c8" stroke-width="1.5"/>
+                            <circle cx="12" cy="17" r="1" fill="#00f5c8"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="logo-label">NEXUS</p>
+                        <p class="logo-sub">TASK MATRIX v2.4</p>
+                    </div>
+                </div>
+                <div class="status-chip">
+                    <span class="dot"></span> ONLINE
+                </div>
+            </div>
+
+            <div class="stats-row">
+                <div class="stat-card">
+                    <span class="stat-num" id="stat-total">0</span>
+                    <span class="stat-label">TOTAL</span>
+                </div>
+                <div class="stat-card accent">
+                    <span class="stat-num" id="stat-done">0</span>
+                    <span class="stat-label">DONE</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-num" id="stat-pending">0</span>
+                    <span class="stat-label">PENDING</span>
+                </div>
+            </div>
+
+            <div class="progress-bar-wrap">
+                <div class="progress-bar-track">
+                    <div class="progress-bar-fill" id="progress-fill"></div>
+                </div>
+                <span class="progress-pct" id="progress-pct">0%</span>
+            </div>
+        </header>
+
+        <div class="input-section">
+            <div class="input-row">
+                <input
+                    type="text"
+                    class="task-input"
+                    id="task-input"
+                    placeholder="Nueva directiva..."
+                    maxlength="80"
+                    autocomplete="off"
+                />
+                <button class="add-btn" id="add-btn" onclick="addTask()">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                        <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="filter-row">
+                <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">ALL</button>
+                <button class="filter-btn" data-filter="pending" onclick="setFilter('pending', this)">PENDING</button>
+                <button class="filter-btn" data-filter="done" onclick="setFilter('done', this)">DONE</button>
+            </div>
+        </div>
+
+        <ul class="task-list" id="task-list">
+            <li class="empty-state" id="empty-state">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style="opacity:0.3;margin-bottom:10px;">
+                    <rect x="3" y="3" width="18" height="18" rx="2" stroke="#00f5c8" stroke-width="1.5"/>
+                    <line x1="8" y1="12" x2="16" y2="12" stroke="#00f5c8" stroke-width="1.5"/>
+                    <line x1="12" y1="8" x2="12" y2="16" stroke="#00f5c8" stroke-width="1.5"/>
+                </svg>
+                <p>MATRIX VACÍA</p>
+                <p class="empty-sub">Agrega tu primera directiva</p>
+            </li>
+        </ul>
+
+        <div class="footer-bar">
+            <button class="clear-btn" onclick="clearDone()">LIMPIAR COMPLETADAS</button>
+        </div>
+    </div>
+
+<style>
+    :root {
+        --bg: #0f1117;
+        --surface: #161b27;
+        --surface-hi: #1e2535;
+        --nm-shadow-dark: #090c13;
+        --nm-shadow-light: #1e2535;
+        --accent: #00f5c8;
+        --accent-dim: rgba(0, 245, 200, 0.12);
+        --accent-glow: rgba(0, 245, 200, 0.25);
+        --danger: #ff4d6d;
+        --text-primary: #e8eaf0;
+        --text-secondary: #6b7a99;
+        --text-muted: #3d4a62;
+        --border: rgba(255,255,255,0.05);
+        --font-display: 'Orbitron', sans-serif;
+        --font-body: 'DM Sans', sans-serif;
+        --radius: 16px;
+        --radius-sm: 10px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        background: var(--bg);
+        color: var(--text-primary);
+        font-family: var(--font-body);
+        min-height: 100vh;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 2rem 1rem 4rem;
+    }
+
+    .app-wrapper {
+        width: 100%;
+        max-width: 480px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .scanline {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 3px,
+            rgba(0,0,0,0.04) 3px,
+            rgba(0,0,0,0.04) 4px
+        );
+        z-index: 100;
+    }
+
+    /* ── NM UTIL ── */
+    .nm-raised {
+        background: var(--surface);
+        box-shadow:
+            6px 6px 14px var(--nm-shadow-dark),
+            -4px -4px 10px var(--nm-shadow-light);
+        border-radius: var(--radius);
+    }
+    .nm-inset {
+        background: var(--surface);
+        box-shadow:
+            inset 4px 4px 10px var(--nm-shadow-dark),
+            inset -3px -3px 8px var(--nm-shadow-light);
+        border-radius: var(--radius-sm);
+    }
+
+    /* ── HEADER ── */
+    .app-header {
+        background: var(--surface);
+        box-shadow:
+            8px 8px 20px var(--nm-shadow-dark),
+            -5px -5px 14px var(--nm-shadow-light);
+        border-radius: var(--radius);
+        padding: 1.4rem 1.4rem 1.2rem;
+        margin-bottom: 1.2rem;
+        border: 1px solid var(--border);
+        position: relative;
+        overflow: hidden;
+    }
+    .app-header::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--accent), transparent);
+        opacity: 0.6;
+    }
+
+    .header-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1.2rem;
+    }
+
+    .logo-block { display: flex; align-items: center; gap: 12px; }
+
+    .logo-icon {
+        width: 40px; height: 40px;
+        background: var(--surface-hi);
+        box-shadow:
+            4px 4px 10px var(--nm-shadow-dark),
+            -3px -3px 8px rgba(255,255,255,0.03);
+        border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        position: relative;
+    }
+
+    .pulse-ring {
+        position: absolute;
+        width: 100%; height: 100%;
+        border-radius: 10px;
+        border: 1px solid var(--accent);
+        opacity: 0;
+        animation: pulse-ring 2.5s ease-out infinite;
+    }
+
+    @keyframes pulse-ring {
+        0% { transform: scale(1); opacity: 0.6; }
+        100% { transform: scale(1.5); opacity: 0; }
+    }
+
+    .logo-label {
+        font-family: var(--font-display);
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        color: var(--accent);
+        line-height: 1;
+    }
+    .logo-sub {
+        font-size: 9px;
+        letter-spacing: 2px;
+        color: var(--text-muted);
+        margin-top: 3px;
+        font-family: var(--font-display);
+    }
+
+    .status-chip {
+        font-family: var(--font-display);
+        font-size: 9px;
+        letter-spacing: 2px;
+        color: var(--accent);
+        background: var(--accent-dim);
+        border: 1px solid rgba(0,245,200,0.2);
+        padding: 5px 10px;
+        border-radius: 20px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .dot {
+        width: 6px; height: 6px;
+        background: var(--accent);
+        border-radius: 50%;
+        animation: blink 1.5s ease-in-out infinite;
+    }
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.2; }
+    }
+
+    /* ── STATS ── */
+    .stats-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-bottom: 1rem;
+    }
+    .stat-card {
+        background: var(--surface-hi);
+        box-shadow:
+            inset 3px 3px 8px var(--nm-shadow-dark),
+            inset -2px -2px 6px rgba(255,255,255,0.03);
+        border-radius: var(--radius-sm);
+        padding: 10px;
+        text-align: center;
+        border: 1px solid var(--border);
+        transition: all 0.3s;
+    }
+    .stat-card.accent { border-color: rgba(0,245,200,0.2); }
+    .stat-num {
+        display: block;
+        font-family: var(--font-display);
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1;
+    }
+    .stat-card.accent .stat-num { color: var(--accent); }
+    .stat-label {
+        display: block;
+        font-family: var(--font-display);
+        font-size: 8px;
+        letter-spacing: 2px;
+        color: var(--text-muted);
+        margin-top: 4px;
+    }
+
+    /* ── PROGRESS ── */
+    .progress-bar-wrap {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .progress-bar-track {
+        flex: 1;
+        height: 4px;
+        background: var(--surface-hi);
+        box-shadow: inset 2px 2px 6px var(--nm-shadow-dark);
+        border-radius: 2px;
+        overflow: hidden;
+    }
+    .progress-bar-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--accent), #00d4ff);
+        border-radius: 2px;
+        transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+        box-shadow: 0 0 8px var(--accent-glow);
+    }
+    .progress-pct {
+        font-family: var(--font-display);
+        font-size: 10px;
+        color: var(--accent);
+        min-width: 32px;
+        text-align: right;
+    }
+
+    /* ── INPUT SECTION ── */
+    .input-section {
+        background: var(--surface);
+        box-shadow:
+            8px 8px 20px var(--nm-shadow-dark),
+            -5px -5px 14px var(--nm-shadow-light);
+        border-radius: var(--radius);
+        padding: 1.2rem;
+        margin-bottom: 1.2rem;
+        border: 1px solid var(--border);
+    }
+    .input-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    .task-input {
+        flex: 1;
+        background: var(--surface-hi);
+        box-shadow:
+            inset 4px 4px 10px var(--nm-shadow-dark),
+            inset -3px -3px 8px rgba(255,255,255,0.03);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        padding: 0 16px;
+        height: 46px;
+        font-family: var(--font-body);
+        font-size: 14px;
+        color: var(--text-primary);
+        outline: none;
+        transition: border-color 0.3s, box-shadow 0.3s;
+        letter-spacing: 0.3px;
+    }
+    .task-input::placeholder { color: var(--text-muted); }
+    .task-input:focus {
+        border-color: rgba(0,245,200,0.35);
+        box-shadow:
+            inset 4px 4px 10px var(--nm-shadow-dark),
+            inset -3px -3px 8px rgba(255,255,255,0.03),
+            0 0 0 1px rgba(0,245,200,0.15);
+    }
+
+    .add-btn {
+        width: 46px; height: 46px;
+        flex-shrink: 0;
+        background: var(--accent);
+        border: none;
+        border-radius: var(--radius-sm);
+        color: #0a0e17;
+        cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        box-shadow:
+            4px 4px 12px rgba(0,245,200,0.3),
+            -2px -2px 8px rgba(0,245,200,0.1);
+        transition: all 0.2s;
+    }
+    .add-btn:hover {
+        transform: translateY(-1px);
+        box-shadow:
+            6px 6px 16px rgba(0,245,200,0.4),
+            -3px -3px 10px rgba(0,245,200,0.15);
+    }
+    .add-btn:active { transform: scale(0.95); }
+
+    /* ── FILTERS ── */
+    .filter-row {
+        display: flex;
+        gap: 8px;
+    }
+    .filter-btn {
+        flex: 1;
+        padding: 7px;
+        font-family: var(--font-display);
+        font-size: 9px;
+        letter-spacing: 2px;
+        color: var(--text-muted);
+        background: var(--surface-hi);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.25s;
+        box-shadow:
+            3px 3px 8px var(--nm-shadow-dark),
+            -2px -2px 6px rgba(255,255,255,0.02);
+    }
+    .filter-btn.active {
+        color: var(--accent);
+        border-color: rgba(0,245,200,0.3);
+        background: var(--accent-dim);
+        box-shadow:
+            inset 2px 2px 6px rgba(0,0,0,0.3),
+            0 0 8px rgba(0,245,200,0.1);
+    }
+    .filter-btn:hover:not(.active) { color: var(--text-secondary); }
+
+    /* ── TASK LIST ── */
+    .task-list {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 1.2rem;
+    }
+
+    .empty-state {
+        background: var(--surface);
+        border-radius: var(--radius);
+        padding: 3rem 1rem;
+        text-align: center;
+        border: 1px dashed var(--text-muted);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+    }
+    .empty-state p {
+        font-family: var(--font-display);
+        font-size: 11px;
+        letter-spacing: 3px;
+        color: var(--text-muted);
+    }
+    .empty-sub {
+        font-family: var(--font-body) !important;
+        font-size: 12px !important;
+        letter-spacing: 0.5px !important;
+        color: var(--text-muted);
+        opacity: 0.6;
+    }
+
+    .task-item {
+        background: var(--surface);
+        box-shadow:
+            5px 5px 14px var(--nm-shadow-dark),
+            -3px -3px 10px var(--nm-shadow-light);
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+        position: relative;
+        overflow: hidden;
+        animation: slide-in 0.35s ease;
+    }
+    @keyframes slide-in {
+        from { transform: translateY(-12px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+    .task-item::before {
+        content: '';
+        position: absolute;
+        left: 0; top: 0; bottom: 0;
+        width: 2px;
+        background: transparent;
+        border-radius: 2px 0 0 2px;
+        transition: background 0.3s;
+    }
+    .task-item:hover { transform: translateY(-1px); }
+    .task-item:hover::before { background: var(--accent); }
+
+    .task-item.done {
+        opacity: 0.55;
+        box-shadow:
+            inset 3px 3px 8px var(--nm-shadow-dark),
+            inset -2px -2px 6px rgba(255,255,255,0.02);
+    }
+    .task-item.done::before { background: var(--accent); opacity: 0.4; }
+
+    .check-box {
+        width: 22px; height: 22px;
+        flex-shrink: 0;
+        background: var(--surface-hi);
+        box-shadow:
+            inset 3px 3px 7px var(--nm-shadow-dark),
+            inset -2px -2px 5px rgba(255,255,255,0.03);
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        display: flex; align-items: center; justify-content: center;
+        transition: all 0.25s;
+        position: relative;
+    }
+    .task-item.done .check-box {
+        background: var(--accent-dim);
+        border-color: rgba(0,245,200,0.4);
+        box-shadow:
+            2px 2px 6px rgba(0,245,200,0.15),
+            inset 1px 1px 4px rgba(0,0,0,0.3);
+    }
+    .check-icon {
+        width: 12px; height: 12px;
+        stroke: var(--accent);
+        fill: none;
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0;
+        transform: scale(0.5);
+        transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .task-item.done .check-icon { opacity: 1; transform: scale(1); }
+
+    .task-text {
+        flex: 1;
+        font-size: 14px;
+        color: var(--text-primary);
+        line-height: 1.4;
+        font-weight: 400;
+        transition: all 0.3s;
+        letter-spacing: 0.2px;
+        word-break: break-word;
+    }
+    .task-item.done .task-text {
+        text-decoration: line-through;
+        color: var(--text-muted);
+    }
+
+    .delete-btn {
+        width: 30px; height: 30px;
+        flex-shrink: 0;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        color: var(--text-muted);
+        cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        transition: all 0.2s;
+        opacity: 0;
+    }
+    .task-item:hover .delete-btn { opacity: 1; }
+    .delete-btn:hover {
+        color: var(--danger);
+        border-color: rgba(255, 77, 109, 0.3);
+        background: rgba(255, 77, 109, 0.08);
+    }
+
+    /* ── FOOTER ── */
+    .footer-bar {
+        display: flex;
+        justify-content: flex-end;
+    }
+    .clear-btn {
+        font-family: var(--font-display);
+        font-size: 9px;
+        letter-spacing: 2px;
+        color: var(--text-muted);
+        background: transparent;
+        border: 1px solid var(--text-muted);
+        border-radius: 8px;
+        padding: 8px 14px;
+        cursor: pointer;
+        transition: all 0.25s;
+        opacity: 0.5;
+    }
+    .clear-btn:hover {
+        color: var(--danger);
+        border-color: rgba(255,77,109,0.4);
+        background: rgba(255,77,109,0.06);
+        opacity: 1;
+    }
+</style>
+
+<script>
+    let tasks = [];
+    let currentFilter = 'all';
+
+    const taskInput = document.getElementById('task-input');
+    const taskList = document.getElementById('task-list');
+    const emptyState = document.getElementById('empty-state');
+
+    taskInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') addTask();
+    });
+
+    function addTask() {
+        const text = taskInput.value.trim();
+        if (!text) { taskInput.classList.add('shake'); setTimeout(() => taskInput.classList.remove('shake'), 400); return; }
+        tasks.unshift({ id: Date.now(), text, done: false });
+        taskInput.value = '';
+        render();
+    }
+
+    function toggleTask(id) {
+        const t = tasks.find(t => t.id === id);
+        if (t) t.done = !t.done;
+        render();
+    }
+
+    function deleteTask(id) {
+        tasks = tasks.filter(t => t.id !== id);
+        render();
+    }
+
+    function clearDone() {
+        tasks = tasks.filter(t => !t.done);
+        render();
+    }
+
+    function setFilter(filter, btn) {
+        currentFilter = filter;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        render();
+    }
+
+    function render() {
+        const total = tasks.length;
+        const done = tasks.filter(t => t.done).length;
+        const pending = total - done;
+        const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+
+        document.getElementById('stat-total').textContent = total;
+        document.getElementById('stat-done').textContent = done;
+        document.getElementById('stat-pending').textContent = pending;
+        document.getElementById('progress-fill').style.width = pct + '%';
+        document.getElementById('progress-pct').textContent = pct + '%';
+
+        const filtered = tasks.filter(t => {
+            if (currentFilter === 'done') return t.done;
+            if (currentFilter === 'pending') return !t.done;
+            return true;
+        });
+
+        taskList.innerHTML = '';
+
+        if (filtered.length === 0) {
+            const li = document.createElement('li');
+            li.innerHTML = emptyState.innerHTML;
+            li.className = 'empty-state';
+            taskList.appendChild(li);
+            return;
+        }
+
+        filtered.forEach(t => {
+            const li = document.createElement('li');
+            li.className = 'task-item' + (t.done ? ' done' : '');
+            li.onclick = () => toggleTask(t.id);
+            li.innerHTML = `
+                <div class="check-box">
+                    <svg class="check-icon" viewBox="0 0 12 12">
+                        <polyline points="2,6 5,9 10,3"/>
+                    </svg>
+                </div>
+                <span class="task-text">${escHtml(t.text)}</span>
+                <button class="delete-btn" onclick="event.stopPropagation(); deleteTask(${t.id})" title="Eliminar">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                        <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            `;
+            taskList.appendChild(li);
+        });
+    }
+
+    function escHtml(str) {
+        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    render();
+</script>
+</body>
+</html>

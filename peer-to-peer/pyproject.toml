@@ -1,0 +1,13 @@
+[project]
+name = "peer-to-peer"
+version = "0.1.0"
+description = "P2P To-Do List with consensus (FastAPI + HTMX)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "httpx>=0.27.0",
+    "jinja2>=3.1.4",
+    "python-multipart>=0.0.9",
+]

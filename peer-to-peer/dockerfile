@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+# Install uv (fast Python package manager)
+RUN pip install --no-cache-dir uv
+
+WORKDIR /app
+
+# Copy dependency manifest and install
+COPY pyproject.toml .
+RUN uv pip install --system --no-cache \
+    fastapi \
+    "uvicorn[standard]" \
+    httpx \
+    jinja2 \
+    python-multipart
+
+# Copy source
+COPY main.py .
+COPY templates/ templates/
+
+# Default env (overridden by docker-compose)
+ENV PORT=8000
+ENV NODE_ID=Node
+ENV PEERS=""
+
+EXPOSE ${PORT}
+
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT}"]

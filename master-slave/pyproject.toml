@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin>=1.12,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "modulo_rust"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dynamic = ["version"]
+dependencies = [
+    "fastapi>=0.124.4",
+    "jinja2>=3.1.6",
+    "python-multipart>=0.0.20",
+    "uvicorn>=0.33.0",
+]
